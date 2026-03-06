@@ -37,7 +37,7 @@ const Index = () => {
           <WardrobeTab items={wardrobeItems} onNavigateToUpload={() => setActiveTab("upload")} />
         )}
         {activeTab === "upload" && <UploadTab onSave={handleItemSaved} />}
-        {activeTab === "outfits" && <OutfitsTab />}
+        {activeTab === "outfits" && <OutfitsTab items={wardrobeItems} />}
         {activeTab === "profile" && <ProfileTab />}
       </main>
 
