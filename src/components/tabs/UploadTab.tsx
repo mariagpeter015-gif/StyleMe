@@ -36,7 +36,11 @@ function guessCategory(): string {
   return categories[Math.floor(Math.random() * categories.length)];
 }
 
-const UploadTab = () => {
+interface UploadTabProps {
+  onSave?: (item: { category: string; dominantColor: string; imageUrl: string; notes: string }) => void;
+}
+
+const UploadTab = ({ onSave }: UploadTabProps) => {
   const [step, setStep] = useState<UploadStep>("select");
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [notes, setNotes] = useState("");
@@ -75,6 +79,9 @@ const UploadTab = () => {
   };
 
   const handleSave = () => {
+    if (result) {
+      onSave?.({ category: result.category, dominantColor: result.dominantColor, imageUrl: result.imageUrl, notes });
+    }
     setSaved(true);
     setTimeout(reset, 1200);
   };
