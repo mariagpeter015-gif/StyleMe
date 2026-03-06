@@ -1,26 +1,58 @@
-import { Plus } from "lucide-react";
+import { useState } from "react";
+import { Plus, Shirt } from "lucide-react";
 
-const categories = ["All", "Tops", "Bottoms", "Shoes", "Accessories"];
+export interface WardrobeItem {
+  id: string;
+  category: string;
+  dominantColor: string;
+  imageUrl: string;
+  notes?: string;
+}
 
-const placeholderItems = [
-  { id: 1, category: "Tops", color: "hsl(153, 44%, 90%)" },
-  { id: 2, category: "Bottoms", color: "hsl(200, 15%, 90%)" },
-  { id: 3, category: "Shoes", color: "hsl(30, 30%, 90%)" },
-  { id: 4, category: "Tops", color: "hsl(280, 20%, 90%)" },
-  { id: 5, category: "Accessories", color: "hsl(0, 20%, 90%)" },
-  { id: 6, category: "Bottoms", color: "hsl(210, 25%, 88%)" },
-];
+const categories = ["All", "Tops", "Bottoms", "Shoes", "Outerwear"];
 
-const WardrobeTab = () => {
+interface WardrobeTabProps {
+  items?: WardrobeItem[];
+  onNavigateToUpload?: () => void;
+}
+
+const WardrobeTab = ({ items = [], onNavigateToUpload }: WardrobeTabProps) => {
+  const [activeFilter, setActiveFilter] = useState("All");
+
+  const filtered = activeFilter === "All"
+    ? items
+    : items.filter((item) => item.category === activeFilter);
+
+  if (items.length === 0) {
+    return (
+      <div className="animate-fade-in flex flex-col items-center justify-center py-20">
+        <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-secondary">
+          <Shirt className="h-10 w-10 text-primary" />
+        </div>
+        <h2 className="mb-2 text-lg font-semibold text-foreground">Your wardrobe is empty</h2>
+        <p className="mb-8 max-w-[240px] text-center text-sm text-muted-foreground">
+          Upload your first item to start building your digital closet!
+        </p>
+        <button
+          onClick={onNavigateToUpload}
+          className="rounded-2xl bg-primary px-8 py-3.5 text-sm font-semibold text-primary-foreground transition-transform active:scale-[0.97]"
+        >
+          Upload First Item
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="animate-fade-in">
-      {/* Category filters */}
-      <div className="mb-6 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-        {categories.map((cat, i) => (
+      {/* Filter pills */}
+      <div className="mb-5 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        {categories.map((cat) => (
           <button
             key={cat}
+            onClick={() => setActiveFilter(cat)}
             className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              i === 0
+              activeFilter === cat
                 ? "bg-primary text-primary-foreground"
                 : "bg-secondary text-secondary-foreground"
             }`}
@@ -32,22 +64,44 @@ const WardrobeTab = () => {
 
       {/* Grid */}
       <div className="grid grid-cols-2 gap-3">
-        {placeholderItems.map((item) => (
+        {filtered.map((item) => (
           <div
             key={item.id}
-            className="aspect-square rounded-2xl border border-border flex items-center justify-center"
-            style={{ backgroundColor: item.color }}
+            className="group relative overflow-hidden rounded-2xl border border-border bg-card"
           >
-            <span className="text-xs font-medium text-muted-foreground">{item.category}</span>
+            <img
+              src={item.imageUrl}
+              alt={item.category}
+              className="aspect-square w-full object-cover"
+            />
+            {/* Bottom info bar */}
+            <div className="flex items-center gap-2 px-3 py-2.5">
+              <div
+                className="h-4 w-4 shrink-0 rounded-full border border-border"
+                style={{ backgroundColor: item.dominantColor }}
+              />
+              <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground">
+                {item.category}
+              </span>
+            </div>
           </div>
         ))}
 
-        {/* Add item button */}
-        <button className="aspect-square rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-          <Plus className="h-8 w-8" />
+        {/* Add item */}
+        <button
+          onClick={onNavigateToUpload}
+          className="flex aspect-[4/5] flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+        >
+          <Plus className="h-7 w-7" />
           <span className="text-xs font-medium">Add Item</span>
         </button>
       </div>
+
+      {filtered.length === 0 && items.length > 0 && (
+        <p className="mt-8 text-center text-sm text-muted-foreground">
+          No items in this category yet.
+        </p>
+      )}
     </div>
   );
 };
