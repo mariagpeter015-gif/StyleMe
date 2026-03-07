@@ -2,6 +2,8 @@ import { useState, useRef } from "react";
 import { Camera, Image, Upload, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { supabase } from "@/lib/supabase";
+import { classifyClothing } from "@/lib/gemini";
 
 type UploadStep = "select" | "analysing" | "result";
 
@@ -9,6 +11,8 @@ interface AnalysisResult {
   category: string;
   dominantColor: string;
   imageUrl: string;
+  publicUrl: string;
+  style_tags: string[];
 }
 
 function extractDominantColor(img: HTMLImageElement): string {
@@ -31,9 +35,16 @@ function extractDominantColor(img: HTMLImageElement): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function guessCategory(): string {
-  const categories = ["Shirt", "T-Shirt", "Jacket", "Pants", "Jeans", "Dress", "Skirt", "Sweater", "Hoodie", "Shorts"];
-  return categories[Math.floor(Math.random() * categories.length)];
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",")[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 interface UploadTabProps {
@@ -45,25 +56,57 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [notes, setNotes] = useState("");
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = (file: File) => {
-    const url = URL.createObjectURL(file);
+  const handleFile = async (file: File) => {
+    const localUrl = URL.createObjectURL(file);
     setStep("analysing");
     setSaved(false);
+    setError(null);
 
-    const img = new window.Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const color = extractDominantColor(img);
-      const category = guessCategory();
-      setTimeout(() => {
-        setResult({ category, dominantColor: color, imageUrl: url });
-        setStep("result");
-      }, 1800);
-    };
-    img.src = url;
+    try {
+      // Get dominant color from image
+      const color = await new Promise<string>((resolve) => {
+        const img = new window.Image();
+        img.onload = () => resolve(extractDominantColor(img));
+        img.src = localUrl;
+      });
+
+      // Upload image to Supabase storage
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id ?? "anonymous";
+      const fileName = `${userId}/${Date.now()}_${file.name}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("clothing_images")
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("clothing_images")
+        .getPublicUrl(fileName);
+
+      // Classify with Gemini
+      const base64 = await fileToBase64(file);
+      const classification = await classifyClothing(base64);
+
+      setResult({
+        category: classification.type,
+        dominantColor: color,
+        imageUrl: localUrl,
+        publicUrl,
+        style_tags: classification.style_tags ?? [],
+      });
+      setStep("result");
+
+    } catch (err: any) {
+      console.error(err);
+      setError("Something went wrong. Please try again.");
+      setStep("select");
+    }
   };
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -76,14 +119,37 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
     setResult(null);
     setNotes("");
     setSaved(false);
+    setError(null);
   };
 
-  const handleSave = () => {
-    if (result) {
-      onSave?.({ category: result.category, dominantColor: result.dominantColor, imageUrl: result.imageUrl, notes });
+  const handleSave = async () => {
+    if (!result) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      await supabase.from("clothes_table").insert({
+        user_id: user?.id,
+        image_url: result.publicUrl,
+        type: result.category,
+        color: result.dominantColor,
+        style_tags: result.style_tags,
+      });
+
+      onSave?.({
+        category: result.category,
+        dominantColor: result.dominantColor,
+        imageUrl: result.publicUrl,
+        notes,
+      });
+
+      setSaved(true);
+      setTimeout(reset, 1200);
+
+    } catch (err) {
+      console.error(err);
+      setError("Failed to save. Please try again.");
     }
-    setSaved(true);
-    setTimeout(reset, 1200);
   };
 
   if (step === "analysing") {
@@ -99,7 +165,6 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
   if (step === "result" && result) {
     return (
       <div className="animate-fade-in flex flex-col items-center">
-        {/* Image preview */}
         <div className="relative mb-6 w-full overflow-hidden rounded-2xl border border-border">
           <img
             src={result.imageUrl}
@@ -114,7 +179,6 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
           </button>
         </div>
 
-        {/* Detected info */}
         <div className="mb-6 flex w-full items-center gap-4 rounded-2xl bg-secondary p-4">
           <div
             className="h-12 w-12 shrink-0 rounded-xl border border-border"
@@ -125,10 +189,10 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
               Detected Category
             </p>
             <p className="text-lg font-semibold text-foreground">{result.category}</p>
+            <p className="text-xs text-muted-foreground">{result.style_tags.join(", ")}</p>
           </div>
         </div>
 
-        {/* Notes */}
         <div className="mb-6 w-full">
           <label className="mb-1.5 block text-sm font-medium text-foreground">
             Notes <span className="text-muted-foreground">(optional)</span>
@@ -142,7 +206,6 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
           />
         </div>
 
-        {/* Save button */}
         <Button
           onClick={handleSave}
           disabled={saved}
@@ -164,6 +227,10 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
       <p className="mb-10 max-w-xs text-center text-sm text-muted-foreground">
         Upload photos of your clothing items and let AI categorize them automatically.
       </p>
+
+      {error && (
+        <p className="mb-4 text-sm text-red-500">{error}</p>
+      )}
 
       <div className="flex w-full max-w-xs flex-col gap-3">
         <button
