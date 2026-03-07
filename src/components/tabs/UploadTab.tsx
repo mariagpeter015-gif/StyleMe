@@ -74,14 +74,58 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
         .from("clothing_images")
         .getPublicUrl(fileName);
 
-      setResult({
-        category: "",
-        dominantColor: color,
-        imageUrl: localUrl,
-        publicUrl,
-        style_tags: [],
-      });
-      setStep("result");
+      // Ask Groq to suggest a category from the filename + color
+const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY;
+let suggestedCategory = "";
+let suggestedTags: string[] = [];
+
+try {
+  const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${GROQ_KEY}`
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content: "You are a fashion assistant. Reply ONLY with valid JSON, no extra text."
+        },
+        {
+          role: "user",
+          content: `A user uploaded a clothing photo. 
+Filename: "${file.name}"
+Dominant color: "${color}"
+
+Guess the clothing category and style tags. Reply ONLY with:
+{
+  "category": "one of: Shirt, T-Shirt, Jacket, Pants, Jeans, Skirt, Dress, Sweater, Hoodie, Shorts, Saree, Other",
+  "style_tags": ["tag1", "tag2"]
+}`
+        }
+      ],
+      max_tokens: 60,
+      temperature: 0.3
+    })
+  });
+  const groqData = await groqRes.json();
+  const text = groqData.choices[0].message.content;
+  const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+  suggestedCategory = parsed.category ?? "";
+  suggestedTags = parsed.style_tags ?? [];
+} catch {
+  // Groq failed silently — user can still pick manually
+}
+setResult({
+  category: suggestedCategory,
+  dominantColor: color,
+  imageUrl: localUrl,
+  publicUrl,
+  style_tags: suggestedTags,
+});
+setStep("result");
 
     } catch (err: any) {
       console.error(err);

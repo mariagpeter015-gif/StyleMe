@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Sparkles, RefreshCw, MapPin, Loader2 } from "lucide-react";
 import type { WardrobeItem } from "./WardrobeTab";
+import { findStoresForOccasion, NearbyStore } from "@/lib/stores";
 
 interface OutfitCombo {
   id: string;
@@ -9,45 +10,32 @@ interface OutfitCombo {
   top: WardrobeItem | null;
   bottom: WardrobeItem | null;
   outer: WardrobeItem | null;
-  stores: { name: string; distance: string }[];
-}
-
-const storePool = [
-  { name: "Zara", distance: "0.8km" },
-  { name: "H&M", distance: "1.2km" },
-  { name: "Uniqlo", distance: "1.5km" },
-  { name: "COS", distance: "2.1km" },
-  { name: "Mango", distance: "0.6km" },
-  { name: "& Other Stories", distance: "1.8km" },
-];
-
-function pickRandom<T>(arr: T[], count: number): T[] {
-  const shuffled = [...arr].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
 }
 
 async function getGroqOutfit(occasion: string, items: WardrobeItem[]): Promise<OutfitCombo> {
   const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 
-  const wardrobeText = items.map(i => `id:${i.id} type:${i.category} color:${i.dominantColor}`).join("\n");
+  const wardrobeText = items
+    .map((i) => `id:${i.id} type:${i.category} color:${i.dominantColor}`)
+    .join("\n");
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${GROQ_API_KEY}`
+      Authorization: `Bearer ${GROQ_API_KEY}`,
     },
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
       messages: [
         {
           role: "system",
-          content: "You are a fashion stylist. Respond ONLY with valid JSON, no extra text."
+          content: "You are a fashion stylist. Respond ONLY with valid JSON, no extra text.",
         },
         {
           role: "user",
           content: `Occasion: "${occasion}"
-          
+
 Wardrobe:
 ${wardrobeText}
 
@@ -58,12 +46,12 @@ Pick the best outfit. Respond ONLY with this JSON:
   "top_id": "item id or null",
   "bottom_id": "item id or null",
   "outer_id": "item id or null"
-}`
-        }
+}`,
+        },
       ],
       temperature: 0.7,
-      max_tokens: 200
-    })
+      max_tokens: 200,
+    }),
   });
 
   const data = await response.json();
@@ -74,7 +62,7 @@ Pick the best outfit. Respond ONLY with this JSON:
 
   const findItem = (id: string | null) => {
     if (!id || id === "null") return null;
-    return items.find(i => i.id === id) ?? null;
+    return items.find((i) => i.id === id) ?? null;
   };
 
   return {
@@ -84,7 +72,6 @@ Pick the best outfit. Respond ONLY with this JSON:
     top: findItem(parsed.top_id),
     bottom: findItem(parsed.bottom_id),
     outer: findItem(parsed.outer_id),
-    stores: pickRandom(storePool, 3),
   };
 }
 
@@ -103,7 +90,11 @@ function ItemSlot({ item, label }: { item: WardrobeItem | null; label: string })
   if (item.imageUrl) {
     return (
       <div className="relative flex-1 overflow-hidden rounded-xl border border-border">
-        <img src={item.imageUrl} alt={item.category} className="aspect-square w-full object-cover" />
+        <img
+          src={item.imageUrl}
+          alt={item.category}
+          className="aspect-square w-full object-cover"
+        />
         <span className="absolute bottom-1 left-1 rounded-md bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-foreground backdrop-blur-sm">
           {label}
         </span>
@@ -127,47 +118,83 @@ function OutfitCard({
   onRegenerate,
   highlight,
   loading,
+  nearbyStores,
+  storesLoading,
+  storesError,
 }: {
   combo: OutfitCombo;
   onRegenerate: () => void;
   highlight?: boolean;
   loading?: boolean;
+  nearbyStores?: NearbyStore[];
+  storesLoading?: boolean;
+  storesError?: string | null;
 }) {
   return (
-    <div className={`rounded-2xl border bg-card p-4 ${highlight ? "border-primary/30 shadow-md" : "border-border"}`}>
+    <div
+      className={`rounded-2xl border bg-card p-4 ${
+        highlight ? "border-primary/30 shadow-md" : "border-border"
+      }`}
+    >
+      {/* Header */}
       <div className="mb-3 flex items-center justify-between">
         <h4 className="font-semibold text-foreground">{combo.name}</h4>
         <span className="text-xs text-muted-foreground">AI Pick ✨</span>
       </div>
 
+      {/* Reasoning */}
       {combo.reasoning && (
         <p className="mb-3 text-xs text-muted-foreground italic">"{combo.reasoning}"</p>
       )}
 
+      {/* Clothing item slots */}
       <div className="mb-3 flex gap-2">
         <ItemSlot item={combo.top} label="Top" />
         <ItemSlot item={combo.bottom} label="Bottom" />
         <ItemSlot item={combo.outer} label="Outer" />
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        {combo.stores.map((s) => (
-          <span
-            key={s.name}
-            className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-medium text-secondary-foreground"
-          >
-            <MapPin className="h-3 w-3" />
-            {s.name} • {s.distance}
-          </span>
-        ))}
-      </div>
+      {/* Nearby stores */}
+      {(nearbyStores ?? []).length > 0 && (
+        <div className="mb-3">
+          <p className="text-[11px] text-muted-foreground mb-1.5 font-medium">
+            🏪 Nearby stores for this vibe
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {(nearbyStores ?? []).map((s) => (
+              <span
+                key={s.name}
+                className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-medium text-secondary-foreground"
+              >
+                <MapPin className="h-3 w-3" />
+                {s.name} • {s.distance} • ★{s.rating}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
+      {storesLoading && (
+        <p className="text-[11px] text-muted-foreground mb-3">
+          Finding stores near you...
+        </p>
+      )}
+
+      {storesError && (
+        <p className="text-[11px] text-red-400 mb-3">{storesError}</p>
+      )}
+
+      {/* Regenerate button */}
       <button
         onClick={onRegenerate}
         disabled={loading}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-2.5 text-sm font-medium text-secondary-foreground transition-transform active:scale-[0.97] disabled:opacity-50"
       >
-        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        {loading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <RefreshCw className="h-3.5 w-3.5" />
+        )}
         {loading ? "Generating..." : "Regenerate"}
       </button>
     </div>
@@ -179,6 +206,9 @@ const OutfitsTab = ({ items = [] }: OutfitsTabProps) => {
   const [outfit, setOutfit] = useState<OutfitCombo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nearbyStores, setNearbyStores] = useState<NearbyStore[]>([]);
+  const [storesLoading, setStoresLoading] = useState(false);
+  const [storesError, setStoresError] = useState<string | null>(null);
 
   const generateOutfit = async () => {
     if (!occasion.trim()) {
@@ -189,23 +219,43 @@ const OutfitsTab = ({ items = [] }: OutfitsTabProps) => {
       setError("Please upload some clothes first.");
       return;
     }
+
     setLoading(true);
+    setStoresLoading(true);
     setError(null);
-    try {
-      const result = await getGroqOutfit(occasion, items);
-      setOutfit(result);
-    } catch (err) {
-      console.error(err);
+    setStoresError(null);
+
+    const [outfitResult, storesResult] = await Promise.allSettled([
+      getGroqOutfit(occasion, items),
+      findStoresForOccasion(occasion),
+    ]);
+
+    if (outfitResult.status === "fulfilled") {
+      setOutfit(outfitResult.value);
+    } else {
+      console.error(outfitResult.reason);
       setError("Failed to generate outfit. Please try again.");
-    } finally {
-      setLoading(false);
     }
+
+    if (storesResult.status === "fulfilled") {
+      setNearbyStores(storesResult.value);
+    } else {
+      setStoresError(
+        storesResult.reason?.message ?? "Could not find nearby stores"
+      );
+    }
+
+    setLoading(false);
+    setStoresLoading(false);
   };
 
   return (
     <div className="animate-fade-in">
+      {/* Occasion input */}
       <div className="mb-6">
-        <h3 className="mb-3 text-base font-semibold text-foreground">What's the occasion?</h3>
+        <h3 className="mb-3 text-base font-semibold text-foreground">
+          What's the occasion?
+        </h3>
         <div className="flex gap-2">
           <input
             type="text"
@@ -220,12 +270,17 @@ const OutfitsTab = ({ items = [] }: OutfitsTabProps) => {
             disabled={loading}
             className="flex items-center gap-2 rounded-2xl bg-primary px-4 py-3 font-semibold text-primary-foreground transition-transform active:scale-[0.97] disabled:opacity-50"
           >
-            {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
+            {loading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Sparkles className="h-5 w-5" />
+            )}
           </button>
         </div>
         {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
       </div>
 
+      {/* Loading spinner */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-16">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -233,17 +288,31 @@ const OutfitsTab = ({ items = [] }: OutfitsTabProps) => {
         </div>
       )}
 
+      {/* Outfit card */}
       {outfit && !loading && (
         <div className="mb-6">
-          <h3 className="mb-3 text-base font-semibold text-foreground">Your Outfit 🌤️</h3>
-          <OutfitCard combo={outfit} onRegenerate={generateOutfit} loading={loading} highlight />
+          <h3 className="mb-3 text-base font-semibold text-foreground">
+            Your Outfit 🌤️
+          </h3>
+          <OutfitCard
+            combo={outfit}
+            onRegenerate={generateOutfit}
+            loading={loading}
+            highlight
+            nearbyStores={nearbyStores}
+            storesLoading={storesLoading}
+            storesError={storesError}
+          />
         </div>
       )}
 
+      {/* Empty state */}
       {!outfit && !loading && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Sparkles className="h-12 w-12 text-primary/40 mb-4" />
-          <p className="text-sm text-muted-foreground">Enter an occasion above and let AI style you!</p>
+          <p className="text-sm text-muted-foreground">
+            Enter an occasion above and let AI style you!
+          </p>
         </div>
       )}
     </div>
