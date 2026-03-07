@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import BottomNav from "@/components/BottomNav";
 import WardrobeTab from "@/components/tabs/WardrobeTab";
 import UploadTab from "@/components/tabs/UploadTab";
 import OutfitsTab from "@/components/tabs/OutfitsTab";
 import ProfileTab from "@/components/tabs/ProfileTab";
 import type { WardrobeItem } from "@/components/tabs/WardrobeTab";
+import { supabase } from "@/integrations/supabase/client";
 
 type Tab = "wardrobe" | "upload" | "outfits" | "profile";
 
@@ -18,6 +19,38 @@ const tabTitles: Record<Tab, string> = {
 const Index = () => {
   const [activeTab, setActiveTab] = useState<Tab>("wardrobe");
   const [wardrobeItems, setWardrobeItems] = useState<WardrobeItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchClothes = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await (supabase as any)
+        .from("clothes_table")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching clothes:", error);
+        setLoading(false);
+        return;
+      }
+
+      const items: WardrobeItem[] = data.map((item: any) => ({
+        id: item.id,
+        category: item.type,
+        dominantColor: item.color,
+        imageUrl: item.image_url,
+      }));
+
+      setWardrobeItems(items);
+      setLoading(false);
+    };
+
+    fetchClothes();
+  }, []);
 
   const handleItemSaved = (item: { category: string; dominantColor: string; imageUrl: string; notes: string }) => {
     setWardrobeItems((prev) => [
@@ -34,11 +67,15 @@ const Index = () => {
 
       <main className="flex-1 px-5 pb-24">
         {activeTab === "wardrobe" && (
-          <WardrobeTab items={wardrobeItems} onNavigateToUpload={() => setActiveTab("upload")} />
+          <WardrobeTab
+            items={wardrobeItems}
+            loading={loading}
+            onNavigateToUpload={() => setActiveTab("upload")}
+          />
         )}
         {activeTab === "upload" && <UploadTab onSave={handleItemSaved} />}
         {activeTab === "outfits" && <OutfitsTab items={wardrobeItems} />}
-        {activeTab === "profile" && <ProfileTab />}
+        {activeTab === "profile" && <ProfileTab itemCount={wardrobeItems.length} />}
       </main>
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />

@@ -2,10 +2,9 @@ import { useState, useRef } from "react";
 import { Camera, Image, Upload, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/lib/supabase";
-import { classifyClothing } from "@/lib/gemini";
+import { supabase } from "@/integrations/supabase/client";
 
-type UploadStep = "select" | "analysing" | "result";
+type UploadStep = "select" | "uploading" | "result";
 
 interface AnalysisResult {
   category: string;
@@ -35,18 +34,6 @@ function extractDominantColor(img: HTMLImageElement): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(",")[1]);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 interface UploadTabProps {
   onSave?: (item: { category: string; dominantColor: string; imageUrl: string; notes: string }) => void;
 }
@@ -62,22 +49,20 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
 
   const handleFile = async (file: File) => {
     const localUrl = URL.createObjectURL(file);
-    setStep("analysing");
+    setStep("uploading");
     setSaved(false);
     setError(null);
 
     try {
-      // Get dominant color from image
       const color = await new Promise<string>((resolve) => {
         const img = new window.Image();
         img.onload = () => resolve(extractDominantColor(img));
         img.src = localUrl;
       });
 
-      // Upload image to Supabase storage
       const { data: { user } } = await supabase.auth.getUser();
       const userId = user?.id ?? "anonymous";
-      const fileName = `${userId}/${Date.now()}_${file.name}`;
+      const fileName = `${userId}/${Date.now()}.jpg`;
 
       const { error: uploadError } = await supabase.storage
         .from("clothing_images")
@@ -89,16 +74,12 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
         .from("clothing_images")
         .getPublicUrl(fileName);
 
-      // Classify with Gemini
-      const base64 = await fileToBase64(file);
-      const classification = await classifyClothing(base64);
-
       setResult({
-        category: classification.type,
+        category: "",
         dominantColor: color,
         imageUrl: localUrl,
         publicUrl,
-        style_tags: classification.style_tags ?? [],
+        style_tags: [],
       });
       setStep("result");
 
@@ -124,17 +105,23 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
 
   const handleSave = async () => {
     if (!result) return;
+    if (!result.category) {
+      setError("Please select a category first.");
+      return;
+    }
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      await supabase.from("clothes_table").insert({
+      const { error: insertError } = await (supabase as any).from("clothes_table").insert({
         user_id: user?.id,
         image_url: result.publicUrl,
         type: result.category,
         color: result.dominantColor,
         style_tags: result.style_tags,
       });
+
+      console.log("Insert error:", insertError);
 
       onSave?.({
         category: result.category,
@@ -152,11 +139,11 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
     }
   };
 
-  if (step === "analysing") {
+  if (step === "uploading") {
     return (
       <div className="animate-fade-in flex flex-col items-center justify-center py-24">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="mt-5 text-base font-medium text-foreground">Analysing your item…</p>
+        <p className="mt-5 text-base font-medium text-foreground">Uploading your item…</p>
         <p className="mt-1 text-sm text-muted-foreground">This won't take long</p>
       </div>
     );
@@ -184,12 +171,29 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
             className="h-12 w-12 shrink-0 rounded-xl border border-border"
             style={{ backgroundColor: result.dominantColor }}
           />
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Detected Category
+          <div className="flex-1">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
+              Select Category
             </p>
-            <p className="text-lg font-semibold text-foreground">{result.category}</p>
-            <p className="text-xs text-muted-foreground">{result.style_tags.join(", ")}</p>
+            <select
+              value={result.category}
+              onChange={(e) => setResult({ ...result, category: e.target.value })}
+              className="text-base font-semibold text-foreground bg-transparent border-b border-border outline-none w-full"
+            >
+              <option value="">Select category...</option>
+              <option value="Shirt">Shirt</option>
+              <option value="T-Shirt">T-Shirt</option>
+              <option value="Jacket">Jacket</option>
+              <option value="Pants">Pants</option>
+              <option value="Jeans">Jeans</option>
+              <option value="Skirt">Skirt</option>
+              <option value="Dress">Dress</option>
+              <option value="Sweater">Sweater</option>
+              <option value="Hoodie">Hoodie</option>
+              <option value="Shorts">Shorts</option>
+              <option value="Saree">Saree</option>
+              <option value="Other">Other</option>
+            </select>
           </div>
         </div>
 
@@ -205,6 +209,10 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
             rows={3}
           />
         </div>
+
+        {error && (
+          <p className="mb-4 text-sm text-red-500">{error}</p>
+        )}
 
         <Button
           onClick={handleSave}
@@ -225,7 +233,7 @@ const UploadTab = ({ onSave }: UploadTabProps) => {
 
       <h2 className="mb-2 text-xl font-semibold text-foreground">Add to your wardrobe</h2>
       <p className="mb-10 max-w-xs text-center text-sm text-muted-foreground">
-        Upload photos of your clothing items and let AI categorize them automatically.
+        Upload photos of your clothing items to your digital wardrobe.
       </p>
 
       {error && (

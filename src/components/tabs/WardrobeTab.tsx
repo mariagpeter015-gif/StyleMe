@@ -9,19 +9,36 @@ export interface WardrobeItem {
   notes?: string;
 }
 
-const categories = ["All", "Tops", "Bottoms", "Shoes", "Outerwear"];
+const categories = ["All", "Tops", "Bottoms", "Outerwear", "Dresses"];
+
+const categoryMap: Record<string, string[]> = {
+  Tops: ["Shirt", "T-Shirt", "Sweater", "Hoodie"],
+  Bottoms: ["Pants", "Jeans", "Skirt", "Shorts"],
+  Outerwear: ["Jacket"],
+  Dresses: ["Dress", "Saree"],
+};
 
 interface WardrobeTabProps {
   items?: WardrobeItem[];
   onNavigateToUpload?: () => void;
+  loading?: boolean;
 }
 
-const WardrobeTab = ({ items = [], onNavigateToUpload }: WardrobeTabProps) => {
+const WardrobeTab = ({ items = [], onNavigateToUpload, loading = false }: WardrobeTabProps) => {
   const [activeFilter, setActiveFilter] = useState("All");
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <p className="mt-4 text-sm text-muted-foreground">Loading your wardrobe...</p>
+      </div>
+    );
+  }
 
   const filtered = activeFilter === "All"
     ? items
-    : items.filter((item) => item.category === activeFilter);
+    : items.filter((item) => categoryMap[activeFilter]?.includes(item.category));
 
   if (items.length === 0) {
     return (
@@ -45,7 +62,6 @@ const WardrobeTab = ({ items = [], onNavigateToUpload }: WardrobeTabProps) => {
 
   return (
     <div className="animate-fade-in">
-      {/* Filter pills */}
       <div className="mb-5 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
         {categories.map((cat) => (
           <button
@@ -62,7 +78,6 @@ const WardrobeTab = ({ items = [], onNavigateToUpload }: WardrobeTabProps) => {
         ))}
       </div>
 
-      {/* Grid */}
       <div className="grid grid-cols-2 gap-3">
         {filtered.map((item) => (
           <div
@@ -74,7 +89,6 @@ const WardrobeTab = ({ items = [], onNavigateToUpload }: WardrobeTabProps) => {
               alt={item.category}
               className="aspect-square w-full object-cover"
             />
-            {/* Bottom info bar */}
             <div className="flex items-center gap-2 px-3 py-2.5">
               <div
                 className="h-4 w-4 shrink-0 rounded-full border border-border"
@@ -87,7 +101,6 @@ const WardrobeTab = ({ items = [], onNavigateToUpload }: WardrobeTabProps) => {
           </div>
         ))}
 
-        {/* Add item */}
         <button
           onClick={onNavigateToUpload}
           className="flex aspect-[4/5] flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary hover:text-primary"

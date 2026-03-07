@@ -1,14 +1,14 @@
 import { useState } from "react";
-import { Sparkles, RefreshCw, MapPin } from "lucide-react";
+import { Sparkles, RefreshCw, MapPin, Loader2 } from "lucide-react";
 import type { WardrobeItem } from "./WardrobeTab";
 
 interface OutfitCombo {
   id: string;
   name: string;
-  score: number;
+  reasoning: string;
   top: WardrobeItem | null;
   bottom: WardrobeItem | null;
-  shoes: WardrobeItem | null;
+  outer: WardrobeItem | null;
   stores: { name: string; distance: string }[];
 }
 
@@ -21,56 +21,69 @@ const storePool = [
   { name: "& Other Stories", distance: "1.8km" },
 ];
 
-const outfitNames = [
-  "Casual Friday",
-  "Weekend Brunch",
-  "City Walk",
-  "Office Chic",
-  "Evening Out",
-  "Sunday Errands",
-  "Smart Casual",
-  "Laid-Back Vibes",
-];
-
-const placeholderColors = [
-  "hsl(153 44% 88%)",
-  "hsl(210 25% 88%)",
-  "hsl(30 30% 88%)",
-  "hsl(280 20% 88%)",
-  "hsl(0 20% 88%)",
-  "hsl(45 40% 88%)",
-];
-
 function pickRandom<T>(arr: T[], count: number): T[] {
   const shuffled = [...arr].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, count);
 }
 
-function generateCombo(items: WardrobeItem[]): OutfitCombo {
-  const tops = items.filter((i) => ["Shirt", "T-Shirt", "Sweater", "Hoodie"].includes(i.category));
-  const bottoms = items.filter((i) => ["Pants", "Jeans", "Shorts", "Skirt"].includes(i.category));
-  const shoes = items.filter((i) => i.category === "Shoes");
+async function getGroqOutfit(occasion: string, items: WardrobeItem[]): Promise<OutfitCombo> {
+  const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 
-  return {
-    id: crypto.randomUUID(),
-    name: outfitNames[Math.floor(Math.random() * outfitNames.length)],
-    score: Math.floor(Math.random() * 15) + 82,
-    top: tops.length ? tops[Math.floor(Math.random() * tops.length)] : null,
-    bottom: bottoms.length ? bottoms[Math.floor(Math.random() * bottoms.length)] : null,
-    shoes: shoes.length ? shoes[Math.floor(Math.random() * shoes.length)] : null,
-    stores: pickRandom(storePool, 3),
+  const wardrobeText = items.map(i => `id:${i.id} type:${i.category} color:${i.dominantColor}`).join("\n");
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${GROQ_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content: "You are a fashion stylist. Respond ONLY with valid JSON, no extra text."
+        },
+        {
+          role: "user",
+          content: `Occasion: "${occasion}"
+          
+Wardrobe:
+${wardrobeText}
+
+Pick the best outfit. Respond ONLY with this JSON:
+{
+  "name": "outfit vibe name (2-3 words)",
+  "reasoning": "one sentence why this works",
+  "top_id": "item id or null",
+  "bottom_id": "item id or null",
+  "outer_id": "item id or null"
+}`
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 200
+    })
+  });
+
+  const data = await response.json();
+  console.log("Groq response:", JSON.stringify(data));
+  const text = data.choices[0].message.content;
+  const clean = text.replace(/```json|```/g, "").trim();
+  const parsed = JSON.parse(clean);
+
+  const findItem = (id: string | null) => {
+    if (!id || id === "null") return null;
+    return items.find(i => i.id === id) ?? null;
   };
-}
 
-function generatePlaceholderCombo(): OutfitCombo {
-  const pick = () => placeholderColors[Math.floor(Math.random() * placeholderColors.length)];
   return {
     id: crypto.randomUUID(),
-    name: outfitNames[Math.floor(Math.random() * outfitNames.length)],
-    score: Math.floor(Math.random() * 15) + 82,
-    top: { id: "p1", category: "Shirt", dominantColor: pick(), imageUrl: "" },
-    bottom: { id: "p2", category: "Pants", dominantColor: pick(), imageUrl: "" },
-    shoes: { id: "p3", category: "Shoes", dominantColor: pick(), imageUrl: "" },
+    name: parsed.name,
+    reasoning: parsed.reasoning,
+    top: findItem(parsed.top_id),
+    bottom: findItem(parsed.bottom_id),
+    outer: findItem(parsed.outer_id),
     stores: pickRandom(storePool, 3),
   };
 }
@@ -113,30 +126,30 @@ function OutfitCard({
   combo,
   onRegenerate,
   highlight,
+  loading,
 }: {
   combo: OutfitCombo;
   onRegenerate: () => void;
   highlight?: boolean;
+  loading?: boolean;
 }) {
   return (
-    <div
-      className={`rounded-2xl border bg-card p-4 ${
-        highlight ? "border-primary/30 shadow-md" : "border-border"
-      }`}
-    >
+    <div className={`rounded-2xl border bg-card p-4 ${highlight ? "border-primary/30 shadow-md" : "border-border"}`}>
       <div className="mb-3 flex items-center justify-between">
         <h4 className="font-semibold text-foreground">{combo.name}</h4>
-        <span className="text-sm font-medium text-foreground">✨ {combo.score}% match</span>
+        <span className="text-xs text-muted-foreground">AI Pick ✨</span>
       </div>
 
-      {/* 3 items side by side */}
+      {combo.reasoning && (
+        <p className="mb-3 text-xs text-muted-foreground italic">"{combo.reasoning}"</p>
+      )}
+
       <div className="mb-3 flex gap-2">
         <ItemSlot item={combo.top} label="Top" />
         <ItemSlot item={combo.bottom} label="Bottom" />
-        <ItemSlot item={combo.shoes} label="Shoes" />
+        <ItemSlot item={combo.outer} label="Outer" />
       </div>
 
-      {/* Store pills */}
       <div className="mb-3 flex flex-wrap gap-1.5">
         {combo.stores.map((s) => (
           <span
@@ -151,52 +164,88 @@ function OutfitCard({
 
       <button
         onClick={onRegenerate}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-2.5 text-sm font-medium text-secondary-foreground transition-transform active:scale-[0.97]"
+        disabled={loading}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-2.5 text-sm font-medium text-secondary-foreground transition-transform active:scale-[0.97] disabled:opacity-50"
       >
-        <RefreshCw className="h-3.5 w-3.5" />
-        Regenerate
+        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        {loading ? "Generating..." : "Regenerate"}
       </button>
     </div>
   );
 }
 
 const OutfitsTab = ({ items = [] }: OutfitsTabProps) => {
-  const hasItems = items.length > 0;
-  const gen = () => (hasItems ? generateCombo(items) : generatePlaceholderCombo());
+  const [occasion, setOccasion] = useState("");
+  const [outfit, setOutfit] = useState<OutfitCombo | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [todaysPick, setTodaysPick] = useState<OutfitCombo>(gen);
-  const [combos, setCombos] = useState<OutfitCombo[]>([gen(), gen()]);
-
-  const regenerateToday = () => setTodaysPick(gen());
-  const regenerateAt = (idx: number) =>
-    setCombos((prev) => prev.map((c, i) => (i === idx ? gen() : c)));
+  const generateOutfit = async () => {
+    if (!occasion.trim()) {
+      setError("Please enter an occasion first.");
+      return;
+    }
+    if (items.length === 0) {
+      setError("Please upload some clothes first.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await getGroqOutfit(occasion, items);
+      setOutfit(result);
+    } catch (err) {
+      console.error(err);
+      setError("Failed to generate outfit. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="animate-fade-in">
-      {/* Today's Pick */}
       <div className="mb-6">
-        <h3 className="mb-3 text-base font-semibold text-foreground">Today's Pick 🌤️</h3>
-        <OutfitCard combo={todaysPick} onRegenerate={regenerateToday} highlight />
+        <h3 className="mb-3 text-base font-semibold text-foreground">What's the occasion?</h3>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={occasion}
+            onChange={(e) => setOccasion(e.target.value)}
+            placeholder="e.g. job interview, beach day, date night..."
+            className="flex-1 rounded-2xl border border-border bg-secondary px-4 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            onKeyDown={(e) => e.key === "Enter" && generateOutfit()}
+          />
+          <button
+            onClick={generateOutfit}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-2xl bg-primary px-4 py-3 font-semibold text-primary-foreground transition-transform active:scale-[0.97] disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
+          </button>
+        </div>
+        {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
       </div>
 
-      {/* More combinations */}
-      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-        More Combinations
-      </h3>
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-16">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <p className="mt-4 text-sm text-muted-foreground">Styling your outfit...</p>
+        </div>
+      )}
 
-      <div className="flex flex-col gap-3">
-        {combos.map((combo, idx) => (
-          <OutfitCard key={combo.id} combo={combo} onRegenerate={() => regenerateAt(idx)} />
-        ))}
-      </div>
+      {outfit && !loading && (
+        <div className="mb-6">
+          <h3 className="mb-3 text-base font-semibold text-foreground">Your Outfit 🌤️</h3>
+          <OutfitCard combo={outfit} onRegenerate={generateOutfit} loading={loading} highlight />
+        </div>
+      )}
 
-      <button
-        onClick={() => setCombos((prev) => [...prev, gen()])}
-        className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-4 font-semibold text-primary-foreground transition-transform active:scale-[0.97]"
-      >
-        <Sparkles className="h-5 w-5" />
-        Generate More
-      </button>
+      {!outfit && !loading && (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <Sparkles className="h-12 w-12 text-primary/40 mb-4" />
+          <p className="text-sm text-muted-foreground">Enter an occasion above and let AI style you!</p>
+        </div>
+      )}
     </div>
   );
 };
