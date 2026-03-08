@@ -95,7 +95,7 @@ try {
         },
         {
           role: "user",
-          content: `A user uploaded a clothing photo. 
+          content: `A user uploaded a clothing photo.
 Filename: "${file.name}"
 Dominant color: "${color}"
 

@@ -1,5 +1,3 @@
-const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY;
-
 export interface NearbyStore {
   name: string;
   address: string;
@@ -11,6 +9,7 @@ export interface NearbyStore {
 // Use Groq to turn occasion into a vibe keyword
 async function getKeywordForOccasion(occasion: string): Promise<string> {
   try {
+    const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY;
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -18,7 +17,7 @@ async function getKeywordForOccasion(occasion: string): Promise<string> {
         "Authorization": `Bearer ${GROQ_KEY}`,
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model: "llama-3.1-8b-instant",
         messages: [
           {
             role: "system",
@@ -35,9 +34,8 @@ Reply with ONE short label like: formal wear, streetwear, casual, sportswear, et
       }),
     });
     const data = await response.json();
-    return data.choices[0].message.content.trim();
+    return data.choices?.[0]?.message?.content?.trim() ?? "clothing";
   } catch {
-    // Fallback if Groq fails
     return "clothing";
   }
 }

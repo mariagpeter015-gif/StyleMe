@@ -22,10 +22,14 @@ const ProfileTab = ({ itemCount = 0 }: ProfileTabProps) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) setEmail(user.email ?? "");
 
-      const { count } = await (supabase as any)
-        .from("outfits")
-        .select("*", { count: "exact", head: true });
-      setOutfitCount(count ?? 0);
+      try {
+          const { count } = await (supabase as any)
+            .from("outfit_table")
+            .select("*", { count: "exact", head: true });
+          setOutfitCount(count ?? 0);
+        } catch {
+          setOutfitCount(0);
+      }
     };
     loadProfile();
   }, []);
