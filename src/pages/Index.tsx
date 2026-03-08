@@ -24,7 +24,10 @@ const Index = () => {
   useEffect(() => {
     const fetchClothes = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
 
       const { data, error } = await (supabase as any)
         .from("clothes_table")
